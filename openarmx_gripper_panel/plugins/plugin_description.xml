@@ -1,0 +1,9 @@
+<library path="openarmx_gripper_panel">
+  <class name="openarmx_gripper_panel/GripperPanel"
+         type="openarmx_gripper_panel::GripperPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      OpenArm夹爪控制面板 - 在RViz中控制单个或双个夹爪的开合
+    </description>
+  </class>
+</library>

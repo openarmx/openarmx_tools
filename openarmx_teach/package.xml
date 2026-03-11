@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!--
+   Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+
+   Copyright (c) 2026 Chengdu Changshu Robot Co., Ltd.
+   https://www.openarmx.com
+
+   This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+   4.0 International License (CC BY-NC-SA 4.0).
+
+   To view a copy of this license, visit:
+   http://creativecommons.org/licenses/by-nc-sa/4.0/
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+-->
+<package format="3">
+  <name>openarmx_teach</name>
+  <version>0.1.0</version>
+  <description>Utility scripts for recording and playing OpenArm joint states and trajectories.</description>
+
+  <maintainer email="openarmrobot@gmail.com">Chengdu Changshu Robot Co., Ltd</maintainer>
+  <license>CC-BY-NC-SA-4.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>trajectory_msgs</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package> 

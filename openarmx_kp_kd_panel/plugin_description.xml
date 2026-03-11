@@ -1,0 +1,11 @@
+<library path="openarmx_kp_kd_panel">
+  <class name="openarmx_kp_kd_panel/KpKdPanel"
+         type="openarmx_kp_kd_panel::KpKdPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      RViz2面板：动态调整机器人关节KP/KD参数（刚度和阻尼）。
+      支持8个关节（7个手臂关节 + 1个夹爪），通过滑轨控制参数值，
+      自动映射到各电机的实际范围。
+    </description>
+  </class>
+</library>

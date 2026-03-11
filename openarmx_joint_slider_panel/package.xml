@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openarmx_joint_slider_panel</name>
+  <version>0.1.0</version>
+  <description>RViz2 panel with sliders to control OpenArmX bimanual joints and grippers.</description>
+
+  <maintainer email="openarmrobot@gmail.com">Chengdu Changshu Robot Co., Ltd</maintainer>
+  <license>OpenArmX Research and Education License</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>kdl_parser</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>urdf</depend>
+  <depend>rviz_common</depend>
+  <depend>pluginlib</depend>
+  <depend>qtbase5-dev</depend>
+  <depend>libqt5-core</depend>
+  <depend>libqt5-widgets</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <rviz plugin="${prefix}/plugins/plugin_description.xml"/>
+  </export>
+</package>

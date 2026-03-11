@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!--
+   Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+
+   Copyright (c) 2026 Chengdu Changshu Robot Co., Ltd.
+   https://www.openarmx.com
+
+   This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike
+   4.0 International License (CC BY-NC-SA 4.0).
+
+   To view a copy of this license, visit:
+   http://creativecommons.org/licenses/by-nc-sa/4.0/
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+-->
+<package format="3">
+  <name>openarmx_kp_kd_panel</name>
+  <version>0.1.0</version>
+  <description>RViz2面板：动态调整机器人关节KP/KD参数（刚度和阻尼）。支持8个关节的参数实时调整。</description>
+  <maintainer email="openarmrobot@gmail.com">Chengdu Changshu Robot Co., Ltd</maintainer>
+  <license>CC-BY-NC-SA-4.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rviz_common</depend>
+  <depend>rviz_rendering</depend>
+  <depend>pluginlib</depend>
+  <depend>qtbase5-dev</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <rviz plugin="share/openarmx_kp_kd_panel/plugin_description.xml"/>
+  </export>
+</package>

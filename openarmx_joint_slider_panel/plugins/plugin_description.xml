@@ -1,0 +1,9 @@
+<library path="openarmx_joint_slider_panel">
+  <class name="openarmx_joint_slider_panel/JointSliderPanel"
+         type="openarmx_joint_slider_panel::JointSliderPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      OpenArmX bimanual joint and gripper slider panel for RViz2.
+    </description>
+  </class>
+</library>
