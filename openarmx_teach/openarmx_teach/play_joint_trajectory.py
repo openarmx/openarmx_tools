@@ -11,6 +11,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from control_msgs.action import FollowJointTrajectory, GripperCommand
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from std_msgs.msg import Float64MultiArray
 
 
 def load_yaml(file_path: str) -> Dict:
@@ -122,6 +123,52 @@ class _TrajectoryActionClient:
         else:
             self.node.get_logger().error(f'Goal rejected by {self.action_name}')
             return False
+
+
+class _TrajectoryTopicPublisher:
+    """Trajectory control using topic instead of action (for multi-robot setups)."""
+    def __init__(self, topic_name: str, node: Node) -> None:
+        self.publisher = node.create_publisher(JointTrajectory, topic_name, 10)
+        self.topic_name = topic_name
+        self.node = node
+        self._latest_feedback_time: float = 0.0
+
+    def get_latest_feedback_time(self) -> float:
+        return self._latest_feedback_time
+
+    async def send_trajectory_async(self, joint_names: List[str], points: List[Dict], rate_scale: float = 1.0) -> bool:
+        # Create trajectory
+        trajectory = JointTrajectory()
+        trajectory.joint_names = joint_names
+
+        for pt in points:
+            jp = JointTrajectoryPoint()
+            jp.positions = [float(x) for x in pt.get('positions', [])]
+            t = float(pt.get('time_from_start', 0.0)) / max(rate_scale, 1e-6)
+            jp.time_from_start = rclpy.duration.Duration(seconds=t).to_msg()
+            trajectory.points.append(jp)
+
+        self.node.get_logger().info(f'Publishing trajectory with {len(trajectory.points)} points to {self.topic_name}')
+
+        # Publish trajectory
+        self.publisher.publish(trajectory)
+
+        # Simulate feedback for synchronization
+        if trajectory.points:
+            playback_start = time.monotonic()
+            last_point_time = float(trajectory.points[-1].time_from_start.sec) + \
+                            float(trajectory.points[-1].time_from_start.nanosec) / 1e9
+
+            # Update feedback time progressively
+            while True:
+                elapsed = time.monotonic() - playback_start
+                self._latest_feedback_time = min(elapsed, last_point_time)
+                if elapsed >= last_point_time:
+                    break
+                await asyncio.sleep(0.05)
+
+        self.node.get_logger().info(f'{self.topic_name} trajectory published successfully')
+        return True
 
 
 class _GripperActionClient:
@@ -242,6 +289,99 @@ class _GripperActionClient:
         return True
 
 
+class _GripperTopicPublisher:
+    """Gripper control using topic instead of action (for multi-robot setups)."""
+    def __init__(self, topic_name: str, node: Node) -> None:
+        self.publisher = node.create_publisher(Float64MultiArray, topic_name, 10)
+        self.topic_name = topic_name
+        self.node = node
+
+    async def send_gripper_commands_async(self, joint_names: List[str], points: List[Dict], rate_scale: float = 1.0,
+                                          sync_feedback: bool = False, progress_providers: List = None,
+                                          sync_margin: float = 0.0) -> bool:
+        if not joint_names or not points:
+            self.node.get_logger().warning(f'No gripper data for {self.topic_name}')
+            return True
+
+        # Extract scalar gripper position
+        def extract_scalar(pos_list: List[float]) -> float:
+            vals = []
+            for idx in range(len(joint_names)):
+                if idx < len(pos_list):
+                    vals.append(float(pos_list[idx]))
+            return sum(vals) / len(vals) if vals else 0.0
+
+        # Compress points
+        compressed: List[Dict] = []
+        last_pos = None
+        POSITION_EPS = 1e-4
+        MIN_TIME_GAP = 0.2
+        last_keep_time = None
+        for pt in points:
+            positions = pt.get('positions', [])
+            pos = extract_scalar(positions)
+            t = float(pt.get('time_from_start', 0.0)) / max(rate_scale, 1e-6)
+            gap_ok = (last_keep_time is None) or (t - last_keep_time >= MIN_TIME_GAP)
+            change_ok = (last_pos is None) or (abs(pos - last_pos) > POSITION_EPS)
+            if change_ok or gap_ok:
+                compressed.append({'position': pos, 'time': t})
+                last_pos = pos
+                last_keep_time = t
+
+        if not compressed:
+            self.node.get_logger().warning(f'{self.topic_name}: No gripper motion after compression')
+            return True
+
+        self.node.get_logger().info(f'{self.topic_name}: Compressed {len(points)} raw points -> {len(compressed)} gripper commands')
+
+        # Publish commands with timing
+        playback_start = time.monotonic()
+        progress_providers = progress_providers or []
+        FEEDBACK_POLL_DT = 0.05
+        FEEDBACK_STALL_TIMEOUT = 2.0
+
+        last_feedback_progress = 0.0
+        last_feedback_wall_time = time.monotonic()
+
+        for i, item in enumerate(compressed):
+            target_time = item['time']
+            while True:
+                now = time.monotonic()
+                progresses = []
+                if sync_feedback and progress_providers:
+                    for fn in progress_providers:
+                        try:
+                            progresses.append(float(fn()))
+                        except Exception:
+                            continue
+                    progresses = [p for p in progresses if p is not None]
+                if sync_feedback and progresses:
+                    current_progress = max(progresses)
+                    if current_progress > last_feedback_progress + 1e-9:
+                        last_feedback_progress = current_progress
+                        last_feedback_wall_time = now
+                    if current_progress + sync_margin >= target_time:
+                        break
+                    await asyncio.sleep(FEEDBACK_POLL_DT)
+                    if (now - last_feedback_wall_time) > FEEDBACK_STALL_TIMEOUT:
+                        self.node.get_logger().warn(f'{self.topic_name}: feedback stalled > {FEEDBACK_STALL_TIMEOUT}s, falling back to wall clock')
+                        sync_feedback = False
+                else:
+                    elapsed = now - playback_start
+                    remaining = target_time - elapsed
+                    if remaining <= 0:
+                        break
+                    await asyncio.sleep(min(remaining, FEEDBACK_POLL_DT))
+
+            # Publish gripper command
+            msg = Float64MultiArray()
+            msg.data = [float(item['position'])]
+            self.publisher.publish(msg)
+
+        self.node.get_logger().info(f'{self.topic_name}: Gripper command sequence completed (published {len(compressed)} commands)')
+        return True
+
+
 class TrajectoryPlayer(Node):
     def __init__(self, sync_feedback: bool = False, sync_margin: float = 0.0) -> None:
         super().__init__('play_joint_trajectory')
@@ -267,8 +407,14 @@ class TrajectoryPlayer(Node):
     def add_trajectory_client(self, name: str, action_name: str) -> None:
         self._trajectory_clients[name] = _TrajectoryActionClient(action_name, self)
 
+    def add_trajectory_publisher(self, name: str, topic_name: str) -> None:
+        self._trajectory_clients[name] = _TrajectoryTopicPublisher(topic_name, self)
+
     def add_gripper_client(self, name: str, action_name: str) -> None:
         self._gripper_clients[name] = _GripperActionClient(action_name, self)
+
+    def add_gripper_publisher(self, name: str, topic_name: str) -> None:
+        self._gripper_clients[name] = _GripperTopicPublisher(topic_name, self)
 
     async def play_all_joints_async(self, joint_names: List[str], points: List[Dict], rate_scale: float = 1.0) -> None:
         """Play trajectory using all available action clients simultaneously."""
@@ -383,6 +529,7 @@ def main() -> None:
     parser.add_argument('--all-joints', action='store_true', help='Play all joints using multiple controllers simultaneously')
     parser.add_argument('--sync-feedback', action='store_true', help='Use arm trajectory feedback time to trigger gripper goals')
     parser.add_argument('--sync-margin', type=float, default=0.0, help='Advance gripper goals when feedback_time + margin >= goal time')
+    parser.add_argument('--arm-prefix', type=str, default='', help='Topic namespace prefix (e.g., robot1, robot2)')
     args = parser.parse_args()
 
     data = load_yaml(args.file)
@@ -416,16 +563,34 @@ def main() -> None:
 
     # Initialize ROS 2
     rclpy.init()
-    
+
+    # Build topic prefix
+    topic_prefix = ''
+    if args.arm_prefix:
+        # Ensure prefix starts with / and doesn't end with /
+        prefix = args.arm_prefix.strip()
+        if not prefix.startswith('/'):
+            prefix = '/' + prefix
+        if prefix.endswith('/'):
+            prefix = prefix[:-1]
+        topic_prefix = prefix
+
     try:
         player = TrajectoryPlayer(sync_feedback=args.sync_feedback, sync_margin=args.sync_margin)
-        
+
         if args.action:
             # Single controller mode - determine if it's gripper or trajectory
+            action_name = args.action
+            # Add prefix if it doesn't already start with the prefix
+            if topic_prefix and not action_name.startswith(topic_prefix):
+                if not action_name.startswith('/'):
+                    action_name = '/' + action_name
+                action_name = topic_prefix + action_name
+
             if 'gripper' in args.action:
-                player.add_gripper_client('single', args.action)
+                player.add_gripper_client('single', action_name)
             else:
-                player.add_trajectory_client('single', args.action)
+                player.add_trajectory_client('single', action_name)
             success = player.play_single_controller('single', joint_names, points, rate_scale=args.rate_scale)
             if success:
                 print("Trajectory execution completed successfully!")
@@ -433,10 +598,17 @@ def main() -> None:
                 print("Trajectory execution failed")
         else:
             # Multi-controller mode
-            player.add_trajectory_client('left_arm', '/left_joint_trajectory_controller/follow_joint_trajectory')
-            player.add_trajectory_client('right_arm', '/right_joint_trajectory_controller/follow_joint_trajectory')
-            player.add_gripper_client('left_gripper', '/left_gripper_controller/gripper_cmd')
-            player.add_gripper_client('right_gripper', '/right_gripper_controller/gripper_cmd')
+            # Trajectory always uses action, gripper uses topic if prefix is set
+            player.add_trajectory_client('left_arm', f'{topic_prefix}/left_joint_trajectory_controller/follow_joint_trajectory')
+            player.add_trajectory_client('right_arm', f'{topic_prefix}/right_joint_trajectory_controller/follow_joint_trajectory')
+
+            # Use topic for gripper if prefix is set, otherwise use action
+            if topic_prefix:
+                player.add_gripper_publisher('left_gripper', f'{topic_prefix}/left_gripper_controller/commands')
+                player.add_gripper_publisher('right_gripper', f'{topic_prefix}/right_gripper_controller/commands')
+            else:
+                player.add_gripper_client('left_gripper', '/left_gripper_controller/gripper_cmd')
+                player.add_gripper_client('right_gripper', '/right_gripper_controller/gripper_cmd')
             
             # Run async function
             loop = asyncio.new_event_loop()
