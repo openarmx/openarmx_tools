@@ -273,15 +273,15 @@ class _GripperActionClient:
             goal.command.position = float(item['position'])
             goal.command.max_effort = 50.0
             goal_future = self.action_client.send_goal_async(goal)
-            goal_handle = await goal_future
-            if not goal_handle.accepted:
-                self.node.get_logger().error(f'{self.action_name} goal {i} rejected (pos={goal.command.position})')
-                return False
-            result_futures.append((i, goal.command.position, goal_handle.get_result_async()))
+            result_futures.append((i, goal.command.position, goal_future))
 
         # Await all results
-        for i, pos, rf in result_futures:
-            result = await rf
+        for i, pos, gf in result_futures:
+            goal_handle = await gf
+            if not goal_handle.accepted:
+                self.node.get_logger().error(f'{self.action_name} goal {i} rejected (pos={pos})')
+                continue
+            result = await goal_handle.get_result_async()
             if not result.result.reached_goal:
                 self.node.get_logger().warning(f'{self.action_name} goal {i}: target not reached (pos={pos})')
 
