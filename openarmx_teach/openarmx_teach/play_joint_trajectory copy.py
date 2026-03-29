@@ -14,25 +14,6 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from std_msgs.msg import Float64MultiArray
 
 
-async def _wait_for_rclpy_future(rclpy_future):
-    """
-    Safely wait for a rclpy Future by creating an asyncio Future bridge.
-    This ensures compatibility with asyncio.gather().
-    """
-    loop = asyncio.get_event_loop()
-    asyncio_future = loop.create_future()
-
-    def done_callback(future):
-        try:
-            result = future.result()
-            loop.call_soon_threadsafe(asyncio_future.set_result, result)
-        except Exception as e:
-            loop.call_soon_threadsafe(asyncio_future.set_exception, e)
-
-    rclpy_future.add_done_callback(done_callback)
-    return await asyncio_future
-
-
 def load_yaml(file_path: str) -> Dict:
     with open(file_path, 'r') as f:
         return yaml.safe_load(f)
@@ -130,14 +111,14 @@ class _TrajectoryActionClient:
 
         # Send goal and wait for result
         # Register feedback callback to track execution progress for synchronization.
-        # Use bridge function to ensure rclpy Future compatibility with asyncio
+        # Wrap rclpy Future in asyncio Future to ensure compatibility
         future = self.action_client.send_goal_async(goal, feedback_callback=self._on_feedback)
-        goal_handle = await _wait_for_rclpy_future(future)
+        goal_handle = await asyncio.wrap_future(future)
 
         if goal_handle.accepted:
             self.node.get_logger().info(f'Goal accepted by {self.action_name}!')
             result_future = goal_handle.get_result_async()
-            result = await _wait_for_rclpy_future(result_future)
+            result = await asyncio.wrap_future(result_future)
             self.node.get_logger().info(f'{self.action_name} result: {result.result.error_string}')
             return result.result.error_code == 0
         else:
@@ -297,11 +278,11 @@ class _GripperActionClient:
 
         # Await all results
         for i, pos, gf in result_futures:
-            goal_handle = await _wait_for_rclpy_future(gf)
+            goal_handle = await asyncio.wrap_future(gf)
             if not goal_handle.accepted:
                 self.node.get_logger().error(f'{self.action_name} goal {i} rejected (pos={pos})')
                 continue
-            result = await _wait_for_rclpy_future(goal_handle.get_result_async())
+            result = await asyncio.wrap_future(goal_handle.get_result_async())
             if not result.result.reached_goal:
                 self.node.get_logger().warning(f'{self.action_name} goal {i}: target not reached (pos={pos})')
 
