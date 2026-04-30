@@ -23,6 +23,7 @@
 #include <QSlider>
 #include <QLabel>
 #include <QComboBox>
+#include <QLineEdit>
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -65,11 +66,14 @@ private Q_SLOTS:
   void onResetGripperKp();
   void onResetGripperKd();
   void onArmSelectionChanged(int index);
+  void onNamespaceChanged(const QString & text);
 
 private:
   void setupUi();
   void setupRos();
   void updateLabels();
+  // Build fully-qualified node name with optional namespace prefix
+  std::string buildNodeName(const std::string & base_name) const;
 
   /**
    * @brief 将滑轨值映射到实际电机KP/KD范围
@@ -94,6 +98,9 @@ private:
   // 目标节点名称（硬件参数节点）
   std::string target_node_name_right_ = "/openarmx_right_hardware_params";
   std::string target_node_name_left_ = "/openarmx_left_hardware_params";
+
+  // 命名空间前缀（多机器人时填入，如 "robot1"；单机器人留空）
+  std::string ros_namespace_;
 
   // 当前控制模式：0=右臂, 1=左臂, 2=双臂
   int control_mode_ = 2;  // 默认双臂
@@ -147,6 +154,7 @@ private:
 
   // UI元素 - 通用
   QComboBox * arm_selector_{};
+  QLineEdit * namespace_input_{};
   QPushButton * apply_button_{};
   QLabel * status_label_{};
 

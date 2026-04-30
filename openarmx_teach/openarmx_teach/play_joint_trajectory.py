@@ -448,51 +448,45 @@ class TrajectoryPlayer(Node):
         left_gripper_joints = [j for j in joint_names if j.startswith('openarmx_left_finger')]
         right_gripper_joints = [j for j in joint_names if j.startswith('openarmx_right_finger')]
 
-        # Create tasks for each controller
         tasks = []
-        
-        # Left arm
-        if left_arm_joints and 'left_arm' in self._trajectory_clients:
-            left_joint_names, left_points = filter_joints(joint_names, points, left_arm_joints)
-            if left_joint_names:
-                task = self._trajectory_clients['left_arm'].send_trajectory_async(
-                    left_joint_names, left_points, rate_scale)
-                tasks.append(('left_arm', task))
-        
-        # Right arm
-        if right_arm_joints and 'right_arm' in self._trajectory_clients:
-            right_joint_names, right_points = filter_joints(joint_names, points, right_arm_joints)
-            if right_joint_names:
-                task = self._trajectory_clients['right_arm'].send_trajectory_async(
-                    right_joint_names, right_points, rate_scale)
-                tasks.append(('right_arm', task))
-        
-        # Build list of trajectory progress providers (reference arms) for feedback-sync.
+
+        # Match controllers by suffix pattern: any key ending with _left_arm, _right_arm, etc.
+        for key, client in self._trajectory_clients.items():
+            if key.endswith('_left_arm') or key == 'left_arm':
+                if left_arm_joints:
+                    names, pts = filter_joints(joint_names, points, left_arm_joints)
+                    if names:
+                        tasks.append((key, client.send_trajectory_async(names, pts, rate_scale)))
+            elif key.endswith('_right_arm') or key == 'right_arm':
+                if right_arm_joints:
+                    names, pts = filter_joints(joint_names, points, right_arm_joints)
+                    if names:
+                        tasks.append((key, client.send_trajectory_async(names, pts, rate_scale)))
+
         progress_providers = []
         if self._sync_feedback:
-            # Use all trajectory clients (left/right arms) as providers; if only one exists, that's fine.
             for tc in self._trajectory_clients.values():
                 progress_providers.append(tc.get_latest_feedback_time)
 
-        # Left gripper
-        if left_gripper_joints and 'left_gripper' in self._gripper_clients:
-            left_gripper_joint_names, left_gripper_points = filter_joints(joint_names, points, left_gripper_joints)
-            if left_gripper_joint_names:
-                task = self._gripper_clients['left_gripper'].send_gripper_commands_async(
-                    left_gripper_joint_names, left_gripper_points, rate_scale,
-                    sync_feedback=self._sync_feedback, progress_providers=progress_providers,
-                    sync_margin=self._sync_margin)
-                tasks.append(('left_gripper', task))
-        
-        # Right gripper
-        if right_gripper_joints and 'right_gripper' in self._gripper_clients:
-            right_gripper_joint_names, right_gripper_points = filter_joints(joint_names, points, right_gripper_joints)
-            if right_gripper_joint_names:
-                task = self._gripper_clients['right_gripper'].send_gripper_commands_async(
-                    right_gripper_joint_names, right_gripper_points, rate_scale,
-                    sync_feedback=self._sync_feedback, progress_providers=progress_providers,
-                    sync_margin=self._sync_margin)
-                tasks.append(('right_gripper', task))
+        for key, client in self._gripper_clients.items():
+            if key.endswith('_left_gripper') or key == 'left_gripper':
+                if left_gripper_joints:
+                    names, pts = filter_joints(joint_names, points, left_gripper_joints)
+                    if names:
+                        tasks.append((key, client.send_gripper_commands_async(
+                            names, pts, rate_scale,
+                            sync_feedback=self._sync_feedback,
+                            progress_providers=progress_providers,
+                            sync_margin=self._sync_margin)))
+            elif key.endswith('_right_gripper') or key == 'right_gripper':
+                if right_gripper_joints:
+                    names, pts = filter_joints(joint_names, points, right_gripper_joints)
+                    if names:
+                        tasks.append((key, client.send_gripper_commands_async(
+                            names, pts, rate_scale,
+                            sync_feedback=self._sync_feedback,
+                            progress_providers=progress_providers,
+                            sync_margin=self._sync_margin)))
 
         if not tasks:
             self.get_logger().error('No valid joint groups found for available controllers')
@@ -549,7 +543,7 @@ def main() -> None:
     parser.add_argument('--all-joints', action='store_true', help='Play all joints using multiple controllers simultaneously')
     parser.add_argument('--sync-feedback', action='store_true', help='Use arm trajectory feedback time to trigger gripper goals')
     parser.add_argument('--sync-margin', type=float, default=0.0, help='Advance gripper goals when feedback_time + margin >= goal time')
-    parser.add_argument('--arm-prefix', type=str, default='', help='Topic namespace prefix (e.g., robot1, robot2)')
+    parser.add_argument('--arm-prefix', type=str, nargs='+', default=[''], help='Namespace prefix(es) for target robot(s). Use multiple to broadcast to several robots simultaneously (e.g. --arm-prefix robot1 robot2). Leave empty for single robot without namespace.')
     args = parser.parse_args()
 
     data = load_yaml(args.file)
@@ -584,63 +578,72 @@ def main() -> None:
     # Initialize ROS 2
     rclpy.init()
 
-    # Build topic prefix
-    topic_prefix = ''
-    if args.arm_prefix:
-        # Ensure prefix starts with / and doesn't end with /
-        prefix = args.arm_prefix.strip()
-        if not prefix.startswith('/'):
-            prefix = '/' + prefix
-        if prefix.endswith('/'):
-            prefix = prefix[:-1]
-        topic_prefix = prefix
+    def normalize_prefix(raw: str) -> str:
+        p = raw.strip()
+        if not p:
+            return ''
+        if not p.startswith('/'):
+            p = '/' + p
+        return p.rstrip('/')
+
+    # Deduplicate and normalize prefixes
+    prefixes = list(dict.fromkeys(normalize_prefix(p) for p in args.arm_prefix))
 
     try:
-        player = TrajectoryPlayer(sync_feedback=args.sync_feedback, sync_margin=args.sync_margin)
-
         if args.action:
-            # Single controller mode - determine if it's gripper or trajectory
+            # Single-action mode: only makes sense for one prefix
+            prefix = prefixes[0] if prefixes else ''
+            player = TrajectoryPlayer(sync_feedback=args.sync_feedback, sync_margin=args.sync_margin)
             action_name = args.action
-            # Add prefix if it doesn't already start with the prefix
-            if topic_prefix and not action_name.startswith(topic_prefix):
+            if prefix and not action_name.startswith(prefix):
                 if not action_name.startswith('/'):
                     action_name = '/' + action_name
-                action_name = topic_prefix + action_name
-
+                action_name = prefix + action_name
             if 'gripper' in args.action:
                 player.add_gripper_client('single', action_name)
             else:
                 player.add_trajectory_client('single', action_name)
             success = player.play_single_controller('single', joint_names, points, rate_scale=args.rate_scale)
-            if success:
-                print("Trajectory execution completed successfully!")
-            else:
-                print("Trajectory execution failed")
+            print("Trajectory execution completed successfully!" if success else "Trajectory execution failed")
+            player.shutdown()
         else:
-            # Multi-controller mode
-            # Trajectory always uses action, gripper uses topic if prefix is set
-            player.add_trajectory_client('left_arm', f'{topic_prefix}/left_joint_trajectory_controller/follow_joint_trajectory')
-            player.add_trajectory_client('right_arm', f'{topic_prefix}/right_joint_trajectory_controller/follow_joint_trajectory')
+            # Multi-robot broadcast mode: one TrajectoryPlayer with all robots' controllers registered
+            player = TrajectoryPlayer(sync_feedback=args.sync_feedback, sync_margin=args.sync_margin)
 
-            # Use topic for gripper if prefix is set, otherwise use action
-            if topic_prefix:
-                player.add_gripper_publisher('left_gripper', f'{topic_prefix}/left_gripper_controller/commands')
-                player.add_gripper_publisher('right_gripper', f'{topic_prefix}/right_gripper_controller/commands')
-            else:
-                player.add_gripper_client('left_gripper', '/left_gripper_controller/gripper_cmd')
-                player.add_gripper_client('right_gripper', '/right_gripper_controller/gripper_cmd')
-            
-            # Run async function
+            for prefix in prefixes:
+                tag = prefix.lstrip('/') or 'default'
+                player.add_trajectory_client(
+                    f'{tag}_left_arm',
+                    f'{prefix}/left_joint_trajectory_controller/follow_joint_trajectory')
+                player.add_trajectory_client(
+                    f'{tag}_right_arm',
+                    f'{prefix}/right_joint_trajectory_controller/follow_joint_trajectory')
+                if prefix:
+                    player.add_gripper_publisher(
+                        f'{tag}_left_gripper',
+                        f'{prefix}/left_gripper_controller/commands')
+                    player.add_gripper_publisher(
+                        f'{tag}_right_gripper',
+                        f'{prefix}/right_gripper_controller/commands')
+                else:
+                    player.add_gripper_client(
+                        f'{tag}_left_gripper',
+                        '/left_gripper_controller/gripper_cmd')
+                    player.add_gripper_client(
+                        f'{tag}_right_gripper',
+                        '/right_gripper_controller/gripper_cmd')
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(player.play_all_joints_async(joint_names, points, rate_scale=args.rate_scale))
+                loop.run_until_complete(
+                    player.play_all_joints_async(joint_names, points, rate_scale=args.rate_scale))
                 print("All trajectories completed!")
             finally:
                 loop.close()
-        
-        player.shutdown()
-        
+
+            player.shutdown()
+
     except Exception as e:
         print(f"Error during execution: {e}")
     finally:

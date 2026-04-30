@@ -78,6 +78,17 @@ void KpKdPanel::setupUi()
   arm_selection_group->setLayout(arm_selection_layout);
   main_layout->addWidget(arm_selection_group);
 
+  // 命名空间输入组（多机器人时使用）
+  auto * ns_group = new QGroupBox("机器人命名空间（多机器人时填写，单机器人留空）");
+  auto * ns_layout = new QHBoxLayout;
+  auto * ns_label = new QLabel("命名空间:");
+  namespace_input_ = new QLineEdit;
+  namespace_input_->setPlaceholderText("例: robot1（单机器人留空）");
+  ns_layout->addWidget(ns_label);
+  ns_layout->addWidget(namespace_input_);
+  ns_group->setLayout(ns_layout);
+  main_layout->addWidget(ns_group);
+
   // 手臂关节 KP控制组
   auto * kp_group = new QGroupBox("手臂关节 KP 刚度参数 (Joint 1-7)");
   auto * kp_layout = new QVBoxLayout;
@@ -267,6 +278,10 @@ void KpKdPanel::setupUi()
   connect(arm_selector_, QOverload<int>::of(&QComboBox::currentIndexChanged),
           this, &KpKdPanel::onArmSelectionChanged);
 
+  // 连接信号和槽 - 命名空间输入
+  connect(namespace_input_, &QLineEdit::textChanged,
+          this, &KpKdPanel::onNamespaceChanged);
+
   // 连接信号和槽 - 手臂关节滑轨
   connect(kp_slider_, &QSlider::valueChanged, this, &KpKdPanel::onKpSliderChanged);
   connect(kd_slider_, &QSlider::valueChanged, this, &KpKdPanel::onKdSliderChanged);
@@ -300,8 +315,10 @@ void KpKdPanel::setupRos()
   }
 
   // 创建参数客户端（总是创建两个，但根据模式决定使用哪个）
-  param_client_right_ = std::make_shared<rclcpp::AsyncParametersClient>(node_, target_node_name_right_);
-  param_client_left_ = std::make_shared<rclcpp::AsyncParametersClient>(node_, target_node_name_left_);
+  param_client_right_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      node_, buildNodeName("openarmx_right_hardware_params"));
+  param_client_left_ = std::make_shared<rclcpp::AsyncParametersClient>(
+      node_, buildNodeName("openarmx_left_hardware_params"));
 
   // 等待参数服务器连接（异步），同时检测仿真模式
   auto timer = node_->create_wall_timer(
@@ -716,6 +733,15 @@ void KpKdPanel::load(const rviz_common::Config & config)
       arm_selector_->setCurrentIndex(control_mode);
     }
   }
+
+  // 加载命名空间
+  QString ns;
+  if (config.mapGetString("ros_namespace", &ns)) {
+    ros_namespace_ = ns.toStdString();
+    if (namespace_input_) {
+      namespace_input_->setText(ns);
+    }
+  }
 }
 
 void KpKdPanel::save(rviz_common::Config config) const
@@ -732,6 +758,9 @@ void KpKdPanel::save(rviz_common::Config config) const
 
   // 保存控制模式
   config.mapSetValue("control_mode", control_mode_);
+
+  // 保存命名空间
+  config.mapSetValue("ros_namespace", QString::fromStdString(ros_namespace_));
 }
 
 // 重置按钮槽函数实现
@@ -772,6 +801,25 @@ void KpKdPanel::onArmSelectionChanged(int index)
               mode_name[control_mode_]);
 
   // 重新设置ROS连接
+  if (node_) {
+    setupRos();
+  }
+}
+
+std::string KpKdPanel::buildNodeName(const std::string & base_name) const
+{
+  if (ros_namespace_.empty()) {
+    return "/" + base_name;
+  }
+  std::string ns = ros_namespace_;
+  if (ns.front() != '/') ns = "/" + ns;
+  if (ns.back() == '/') ns.pop_back();
+  return ns + "/" + base_name;
+}
+
+void KpKdPanel::onNamespaceChanged(const QString & text)
+{
+  ros_namespace_ = text.trimmed().toStdString();
   if (node_) {
     setupRos();
   }

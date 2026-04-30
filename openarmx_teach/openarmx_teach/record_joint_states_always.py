@@ -105,13 +105,24 @@ def default_filename(prefix: str = 'joint_states_stream') -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Continuously record /joint_states to YAML')
-    parser.add_argument('--topic', default='/joint_states', help='Joint states topic name')
+    parser.add_argument('--topic', default='', help='Joint states topic name (overrides --arm-prefix)')
+    parser.add_argument('--arm-prefix', default='', help='ROS namespace prefix (e.g. robot1); auto-constructs topic as /<namespace>/joint_states')
     parser.add_argument('--outfile', default='', help='Output YAML file path')
     parser.add_argument('--rate', type=float, default=10.0, help='Recording rate in Hz when running')
     args = parser.parse_args()
 
+    # Resolve topic: explicit --topic wins, otherwise derive from --arm-prefix
+    if args.topic:
+        topic = args.topic
+    elif args.arm_prefix:
+        ns = args.arm_prefix.strip('/')
+        topic = f'/{ns}/joint_states'
+    else:
+        topic = '/joint_states'
+
     rclpy.init()
-    node = JointStatesRecorder(args.topic, args.rate)
+    node = JointStatesRecorder(topic, args.rate)
+    print(f'Subscribing to: {topic}')
 
     dt = 1.0 / max(args.rate, 1e-3)
 
