@@ -41,7 +41,7 @@ class JointSliderPanel : public rviz_common::Panel {
   void save(rviz_common::Config config) const override;
 
  private Q_SLOTS:
-  void onSyncFromRobotClicked();
+  void onHandsUpClicked();
   void onPreviewClicked();
   void onHomeClicked();
   void onJointStepSliderChanged(int value);
@@ -95,6 +95,7 @@ class JointSliderPanel : public rviz_common::Panel {
   bool hasAllTargetJointStates() const;
   TargetState targetStateFromLatestJointStates() const;
   bool applyJointStateToSliders();
+  bool targetStatesApproxEqual(const TargetState &lhs, const TargetState &rhs) const;
 
   TargetState collectTargetStateFromSliders() const;
 
@@ -114,7 +115,7 @@ class JointSliderPanel : public rviz_common::Panel {
   SliderBinding left_gripper_slider_;
   SliderBinding right_gripper_slider_;
 
-  QPushButton *sync_button_{nullptr};
+  QPushButton *hands_up_button_{nullptr};
   QPushButton *home_button_{nullptr};
   QLabel *status_label_{nullptr};
   QSlider *joint_step_slider_{nullptr};
@@ -139,6 +140,7 @@ class JointSliderPanel : public rviz_common::Panel {
   std::map<std::string, double> latest_joint_state_map_;
   bool has_joint_state_{false};
   bool auto_sync_done_{false};
+  bool slider_interacting_{false};
 
   bool suppress_slider_events_{false};
   bool joint_limits_loaded_{false};

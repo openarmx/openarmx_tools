@@ -11,21 +11,33 @@ Each subpackage in this directory can be built and used independently, covering 
 - RViz2 joint slider panel (dual-arm + dual-gripper).
 - Suitable for quick pose adjustment, demos, and integration testing.
 - Supports segmented step execution to reduce motion shock from large jumps.
+<p align="center">
+  <img src="assets/openarmx_joint_slider_panel.gif" alt="openarmx_joint_slider_panel demo" width="80%" />
+</p>
 
 2. `openarmx_gripper_panel`
 - RViz2 gripper control panel.
 - Supports left gripper, right gripper, or synchronized dual-gripper control.
 - Sends commands via `GripperCommand` action.
+<p align="center">
+  <img src="assets/openarmx_gripper_panel.gif" alt="openarmx_gripper_panel demo" width="80%" />
+</p>
 
 3. `openarmx_kp_kd_panel`
 - RViz2 KP/KD parameter tuning panel.
 - Enables real-time stiffness and damping adjustment for arm and gripper.
 - Supports right-arm, left-arm, or dual-arm mode for real hardware tuning.
+<p align="center">
+  <img src="assets/openarmx_kp_kd_panel.gif" alt="openarmx_kp_kd_panel demo" width="80%" />
+</p>
 
 4. `openarmx_teach`
 - Trajectory teaching tools (record + playback).
 - Records YAML trajectories from `/joint_states`, then replays to arm and gripper controllers.
 - Supports joint filtering, rate scaling, and gripper synchronization strategies.
+<p align="center">
+  <img src="assets/openarmx_teach.gif" alt="openarmx_teach demo" width="80%" />
+</p>
 
 ## 🚀 Recommended Workflow (Typical Real-Robot Flow)
 

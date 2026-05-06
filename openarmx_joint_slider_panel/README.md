@@ -9,14 +9,14 @@ This plugin is designed for debugging, demos, and fast system integration. In RV
 ## Features
 
 - 16 sliders: left/right arm joints (7 + 7) and left/right grippers.
-- Automatic one-time synchronization from `/joint_states` when the panel starts.
-- Supports `Sync From /joint_states` to reinitialize sliders from the current robot pose at any time.
+- Continuous real-time synchronization from `/joint_states` when the panel is idle.
 - Direct slider control: commands are sent while dragging (no Apply button required).
 - Segmented execution with a background thread:
   - `Joint Step`: controls maximum arm delta per cycle (mrad/cycle).
   - `Gripper Step`: controls maximum gripper delta per cycle (mm/cycle).
   - Large slider jumps are automatically split into multiple small command steps.
 - Preview model is disabled.
+- `Hands Up` button sends both arms to the hands-up preset (joint4=1.8 rad, others 0).
 - `Home` button sets both arm and gripper targets to zero and executes segmented return-to-zero.
 - Forward position backend only:
   - `/left_forward_position_controller/commands`
@@ -35,9 +35,9 @@ source install/setup.bash
 1. Start the robot stack (`demo.launch.py` / `demo_sim.launch.py` / bringup).
 2. Open RViz2.
 3. Go to `Panels` -> `Add New Panel` -> `openarmx_joint_slider_panel/JointSliderPanel`.
-4. Click `Sync From /joint_states`.
-5. Set `Joint Step` and `Gripper Step` based on the desired smoothness.
-6. Drag sliders to directly control the robot with segmented commands.
+4. Set `Joint Step` and `Gripper Step` based on the desired smoothness.
+5. Drag sliders to directly control the robot with segmented commands.
+6. Click `Hands Up` to execute the hands-up preset.
 7. Click `Home` to perform segmented return-to-zero.
 
 **Or use `openarmx_preview_bringup` for one-click startup.**

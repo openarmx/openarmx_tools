@@ -9,14 +9,14 @@
 ## 功能特性
 
 - 提供 16 个滑块：左右机械臂关节（7 + 7）以及左右夹爪。
-- 面板启动后自动进行一次 `/joint_states` 同步。
-- 支持 `Sync From /joint_states`，可随时从当前机器人姿态重新初始化滑块值。
+- 面板启动后自动进入 `/joint_states` 实时同步显示，无需手动同步。
 - 滑块拖动即发命令，无需额外点击“应用”按钮。
 - 支持后台线程分段执行：
   - `Joint Step`：控制每周期机械臂最大步进（mrad/cycle）。
   - `Gripper Step`：控制每周期夹爪最大步进（mm/cycle）。
   - 大幅滑块跳变会自动拆分为多次小步命令。
 - 不启用预览模型（Preview model disabled）。
+- `Hands Up` 按钮可将双臂切换到举手预设位（双臂 joint4=1.8 rad，其余为 0）。
 - `Home` 按钮可将双臂与夹爪目标置零，并按分段模式执行回零。
 - 仅支持前向位置控制后端：
   - `/left_forward_position_controller/commands`
@@ -35,9 +35,9 @@ source install/setup.bash
 1. 启动机器人系统（`demo.launch.py` / `demo_sim.launch.py` / bringup）。
 2. 打开 RViz2。
 3. 进入 `Panels` -> `Add New Panel` -> `openarmx_joint_slider_panel/JointSliderPanel`。
-4. 点击 `Sync From /joint_states`。
-5. 根据期望平滑度设置 `Joint Step` 与 `Gripper Step`。
-6. 拖动滑块后，机器人将按分段命令直接执行运动。
+4. 根据期望平滑度设置 `Joint Step` 与 `Gripper Step`。
+5. 拖动滑块后，机器人将按分段命令直接执行运动。
+6. 点击 `Hands Up` 可执行举手预设动作。
 7. 点击 `Home` 可执行分段回零。
 
 **或者直接使用openarmx_preview_bringup一键启动**

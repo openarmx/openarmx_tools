@@ -70,10 +70,10 @@ void JointSliderPanel::setupUi() {
   root_layout->addWidget(scroll_area);
 
   auto *button_row = new QHBoxLayout;
-  sync_button_ = new QPushButton("从 /joint_states 同步");
+  hands_up_button_ = new QPushButton("Hands Up");
   home_button_ = new QPushButton("Home 回零");
 
-  button_row->addWidget(sync_button_);
+  button_row->addWidget(hands_up_button_);
   button_row->addWidget(home_button_);
   root_layout->addLayout(button_row);
 
@@ -113,7 +113,7 @@ void JointSliderPanel::setupUi() {
 
   setLayout(root_layout);
 
-  connect(sync_button_, &QPushButton::clicked, this, &JointSliderPanel::onSyncFromRobotClicked);
+  connect(hands_up_button_, &QPushButton::clicked, this, &JointSliderPanel::onHandsUpClicked);
   connect(home_button_, &QPushButton::clicked, this, &JointSliderPanel::onHomeClicked);
   connect(joint_step_slider_, &QSlider::valueChanged, this, &JointSliderPanel::onJointStepSliderChanged);
   connect(gripper_step_slider_, &QSlider::valueChanged, this,
@@ -173,6 +173,8 @@ JointSliderPanel::SliderBinding JointSliderPanel::createJointSliderRow(const QSt
       updateDesiredTargetFromSliders();
     }
   });
+  connect(slider, &QSlider::sliderPressed, this, [this]() { slider_interacting_ = true; });
+  connect(slider, &QSlider::sliderReleased, this, [this]() { slider_interacting_ = false; });
 
   updateSliderLabel(binding);
   return binding;
@@ -414,32 +416,34 @@ void JointSliderPanel::jointStateCallback(const sensor_msgs::msg::JointState::Sh
   has_joint_state_ = (n > 0);
 
   if (hasAllTargetJointStates()) {
+    const TargetState current_state = targetStateFromLatestJointStates();
+    bool should_track_live_state = false;
+
     {
       std::lock_guard<std::mutex> lock(command_mutex_);
       if (!command_state_initialized_) {
-        const TargetState current_state = targetStateFromLatestJointStates();
         command_target_ = current_state;
         desired_target_ = current_state;
         command_state_initialized_ = true;
+        should_track_live_state = true;
+      } else if (!slider_interacting_ && targetStatesApproxEqual(desired_target_, command_target_)) {
+        command_target_ = current_state;
+        desired_target_ = current_state;
+        should_track_live_state = true;
       }
     }
-    command_cv_.notify_all();
-  }
 
-  if (!auto_sync_done_ && hasAllTargetJointStates()) {
-    if (applyJointStateToSliders()) {
-      auto_sync_done_ = true;
-      const TargetState synced = collectTargetStateFromSliders();
-      {
-        std::lock_guard<std::mutex> lock(command_mutex_);
-        desired_target_ = synced;
-        command_target_ = synced;
-        command_state_initialized_ = true;
-      }
-      command_cv_.notify_all();
-      setStatus("已自动从 /joint_states 同步初始姿态", "#E3F2FD");
-      scheduleLivePreview();
+    if (should_track_live_state) {
+      applyJointStateToSliders();
     }
+
+    command_cv_.notify_all();
+
+    if (!auto_sync_done_) {
+      auto_sync_done_ = true;
+      setStatus("已启用 /joint_states 实时同步显示", "#E3F2FD");
+    }
+    scheduleLivePreview();
   }
 }
 
@@ -511,21 +515,36 @@ bool JointSliderPanel::applyJointStateToSliders() {
   return true;
 }
 
-void JointSliderPanel::onSyncFromRobotClicked() {
-  if (applyJointStateToSliders()) {
-    const TargetState synced = collectTargetStateFromSliders();
-    {
-      std::lock_guard<std::mutex> lock(command_mutex_);
-      desired_target_ = synced;
-      command_target_ = synced;
-      command_state_initialized_ = true;
-    }
-    command_cv_.notify_all();
-    setStatus("已从 /joint_states 同步滑块", "#E3F2FD");
-    scheduleLivePreview();
-  } else {
-    setStatus("同步失败: /joint_states 缺少 OpenArmX 必要关节", "#FFF3CD");
+void JointSliderPanel::onHandsUpClicked() {
+  if (!node_) {
+    setStatus("面板尚未初始化", "#FFCDD2");
+    return;
   }
+
+  suppress_slider_events_ = true;
+
+  for (size_t i = 0; i < left_arm_sliders_.size(); ++i) {
+    const double target = (i == 3) ? 1.8 : 0.0;
+    const int raw = static_cast<int>(std::lround(target * kArmSliderScale));
+    left_arm_sliders_[i].slider->setValue(std::clamp(
+        raw, left_arm_sliders_[i].slider->minimum(), left_arm_sliders_[i].slider->maximum()));
+  }
+
+  for (size_t i = 0; i < right_arm_sliders_.size(); ++i) {
+    const double target = (i == 3) ? 1.8 : 0.0;
+    const int raw = static_cast<int>(std::lround(target * kArmSliderScale));
+    right_arm_sliders_[i].slider->setValue(std::clamp(
+        raw, right_arm_sliders_[i].slider->minimum(), right_arm_sliders_[i].slider->maximum()));
+  }
+
+  left_gripper_slider_.slider->setValue(
+      std::clamp(0, left_gripper_slider_.slider->minimum(), left_gripper_slider_.slider->maximum()));
+  right_gripper_slider_.slider->setValue(
+      std::clamp(0, right_gripper_slider_.slider->minimum(), right_gripper_slider_.slider->maximum()));
+
+  suppress_slider_events_ = false;
+  updateDesiredTargetFromSliders();
+  setStatus("已设置 Hands Up 目标位，正在按步长分段执行", "#E3F2FD");
 }
 
 void JointSliderPanel::onJointStepSliderChanged(int value) {
@@ -854,6 +873,29 @@ bool JointSliderPanel::stepTowardsTarget(TargetState &current, const TargetState
   moved = step_scalar(current.left_gripper, target.left_gripper, gripper_step_m) || moved;
   moved = step_scalar(current.right_gripper, target.right_gripper, gripper_step_m) || moved;
   return moved;
+}
+
+bool JointSliderPanel::targetStatesApproxEqual(const TargetState &lhs, const TargetState &rhs) const {
+  constexpr double kArmEpsilon = 1e-6;
+  constexpr double kGripperEpsilon = 1e-6;
+
+  if (lhs.left_arm.size() != rhs.left_arm.size() || lhs.right_arm.size() != rhs.right_arm.size()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < lhs.left_arm.size(); ++i) {
+    if (std::abs(lhs.left_arm[i] - rhs.left_arm[i]) > kArmEpsilon) {
+      return false;
+    }
+  }
+  for (size_t i = 0; i < lhs.right_arm.size(); ++i) {
+    if (std::abs(lhs.right_arm[i] - rhs.right_arm[i]) > kArmEpsilon) {
+      return false;
+    }
+  }
+
+  return std::abs(lhs.left_gripper - rhs.left_gripper) <= kGripperEpsilon &&
+         std::abs(lhs.right_gripper - rhs.right_gripper) <= kGripperEpsilon;
 }
 
 void JointSliderPanel::commandWorkerLoop() {
