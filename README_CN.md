@@ -11,33 +11,34 @@
 - RViz2 关节滑块面板（双臂 + 双夹爪）。
 - 适合快速调姿、演示、联调。
 - 支持分段步进执行，减少大跳变带来的运动冲击。
-<p align="center">
-  <img src="assets/openarmx_joint_slider_panel.gif" alt="openarmx_joint_slider_panel 演示" width="80%" />
-</p>
+
+![openarmx_joint_slider_panel 演示](./assets/openarmx_joint_slider_panel.gif)
 
 2. `openarmx_gripper_panel`
 - RViz2 夹爪控制面板。
 - 支持左夹爪、右夹爪或双夹爪同步控制。
 - 基于 `GripperCommand` action 下发命令。
-<p align="center">
-  <img src="assets/openarmx_gripper_panel.gif" alt="openarmx_gripper_panel 演示" width="80%" />
-</p>
+
+![openarmx_gripper_panel 演示](./assets/openarmx_gripper_panel.gif)
 
 3. `openarmx_kp_kd_panel`
 - RViz2 的 KP/KD 参数调节面板。
 - 可对手臂/夹爪进行实时刚度与阻尼调整。
 - 支持左右臂或双臂模式，适用于实机参数整定。
-<p align="center">
-  <img src="assets/openarmx_kp_kd_panel.gif" alt="openarmx_kp_kd_panel 演示" width="80%" />
-</p>
 
-4. `openarmx_teach`
+![openarmx_kp_kd_panel 演示](./assets/openarmx_kp_kd_panel.gif)
+
+4. `openarmx_ik_control_panel`
+- RViz2 中用于切换 VR 遥操作 IK 强制启用状态的面板。
+- 向 `/openarmx_teleop_vr/ik_enable_override` 发布可保持的启用状态。
+- 默认关闭，避免机器人启动后立即进入 IK 强制启用状态。
+
+5. `openarmx_teach`
 - 轨迹示教工具（录制 + 回放）。
 - 从 `/joint_states` 录制 YAML 轨迹，并回放到双臂与夹爪控制器。
 - 支持关节筛选、速率缩放、夹爪同步策略。
-<p align="center">
-  <img src="assets/openarmx_teach.gif" alt="openarmx_teach 演示" width="80%" />
-</p>
+
+![openarmx_teach 演示](./assets/openarmx_teach.gif)
 
 ## 🚀 推荐使用顺序（典型实机流程）
 
@@ -57,6 +58,7 @@ colcon build --packages-select \
   openarmx_joint_slider_panel \
   openarmx_gripper_panel \
   openarmx_kp_kd_panel \
+  openarmx_ik_control_panel \
   openarmx_teach
 source install/setup.bash
 ```
@@ -66,8 +68,35 @@ source install/setup.bash
 - `openarmx_joint_slider_panel/README_CN.md`
 - `openarmx_gripper_panel/README_CN.md`
 - `openarmx_kp_kd_panel/README_CN.md`
+- `openarmx_ik_control_panel/README.md`
+- `openarmx_ik_control_panel/README_CN.md`
 - `openarmx_teach/README_CN.md`
 
-## ⚖️ 许可证
+## 作者
 
-本目录下各子包遵循仓库内声明的许可证（见各子包 `LICENSE` 与 `README`）。
+- 公司: Chengdu Changshu Robot Co., Ltd. (成都长数机器人有限公司)
+- 网站: https://openarmx.com/
+
+## 版本
+
+**当前版本**：6.0.0
+
+## 致谢
+
+本包是 OpenArmX 机器人平台生态系统的一部分，专为协作机器人领域的研究和工业应用而开发。
+
+---
+
+## 📞 联系我们
+
+### 成都长数机器人有限公司
+**Chengdu Changshu Robotics Co., Ltd.**
+
+| 联系方式 | 信息 |
+|---------|------|
+| 📧 邮箱 | openarmrobot@gmail.com |
+| 📱 电话/微信 | +86-17746530375 |
+| 🌐 官网 | <https://openarmx.com/> |
+| 🌐 文档 | <http://docs.openarmx.com/> |
+| 📍 地址 | 天津经济技术开发区西区新业八街11号华诚机械厂 |
+| 👤 联系人 | 王先生 |

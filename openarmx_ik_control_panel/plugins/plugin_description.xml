@@ -1,0 +1,9 @@
+<library path="openarmx_ik_control_panel">
+  <class name="openarmx_ik_control_panel/IkControlPanel"
+         type="openarmx_ik_control_panel::IkControlPanel"
+         base_class_type="rviz_common::Panel">
+    <description>
+      OpenArmX IK enable override panel for VR teleoperation.
+    </description>
+  </class>
+</library>

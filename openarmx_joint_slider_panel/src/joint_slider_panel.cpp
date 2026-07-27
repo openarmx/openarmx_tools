@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <QGroupBox>
+#include <QComboBox>
 #include <QHBoxLayout>
 #include <QScrollArea>
 #include <QTimer>
@@ -39,30 +40,71 @@ void JointSliderPanel::setupUi() {
   title->setAlignment(Qt::AlignCenter);
   root_layout->addWidget(title);
 
+  auto *mode_row = new QHBoxLayout;
+  mode_row->addWidget(new QLabel("末端模式:"));
+  end_effector_mode_combo_ = new QComboBox;
+  end_effector_mode_combo_->addItem("夹爪模式", static_cast<int>(EndEffectorMode::Gripper));
+  end_effector_mode_combo_->addItem("手部模式 (O6)", static_cast<int>(EndEffectorMode::Hand));
+  mode_row->addWidget(end_effector_mode_combo_, 1);
+  root_layout->addLayout(mode_row);
+
   auto *scroll_area = new QScrollArea;
   scroll_area->setWidgetResizable(true);
   auto *scroll_content = new QWidget;
   auto *scroll_layout = new QVBoxLayout;
 
-  auto *left_group = new QGroupBox("左臂 (7关节 + 夹爪)");
+  left_group_ = new QGroupBox("左臂 (7关节 + 夹爪)");
   auto *left_layout = new QVBoxLayout;
   for (size_t i = 0; i < left_arm_sliders_.size(); ++i) {
     const QString name = QString("左关节 %1").arg(static_cast<int>(i + 1));
     left_arm_sliders_[i] = createJointSliderRow(name, left_layout, false, 0.0);
   }
   left_gripper_slider_ = createJointSliderRow("左夹爪 (mm)", left_layout, true, 0.0);
-  left_group->setLayout(left_layout);
-  scroll_layout->addWidget(left_group);
+  left_group_->setLayout(left_layout);
+  scroll_layout->addWidget(left_group_);
 
-  auto *right_group = new QGroupBox("右臂 (7关节 + 夹爪)");
+  right_group_ = new QGroupBox("右臂 (7关节 + 夹爪)");
   auto *right_layout = new QVBoxLayout;
   for (size_t i = 0; i < right_arm_sliders_.size(); ++i) {
     const QString name = QString("右关节 %1").arg(static_cast<int>(i + 1));
     right_arm_sliders_[i] = createJointSliderRow(name, right_layout, false, 0.0);
   }
   right_gripper_slider_ = createJointSliderRow("右夹爪 (mm)", right_layout, true, 0.0);
-  right_group->setLayout(right_layout);
-  scroll_layout->addWidget(right_group);
+  right_group_->setLayout(right_layout);
+  scroll_layout->addWidget(right_group_);
+
+  hand_control_group_ = new QGroupBox("O6 手部控制 (0-255)");
+  auto *hand_layout = new QVBoxLayout;
+  auto *hand_button_row = new QHBoxLayout;
+  o6_open_button_ = new QPushButton("O6 张开");
+  o6_close_button_ = new QPushButton("O6 握拳");
+  hand_button_row->addWidget(o6_open_button_);
+  hand_button_row->addWidget(o6_close_button_);
+  hand_layout->addLayout(hand_button_row);
+
+  auto *left_o6_group = new QGroupBox("左 O6 手");
+  auto *left_o6_layout = new QVBoxLayout;
+  for (size_t i = 0; i < left_o6_sliders_.size(); ++i) {
+    left_o6_sliders_[i] = createO6SliderRow(
+        QString("左 %1").arg(QString::fromStdString(o6_joint_names_[i])),
+        left_o6_layout,
+        o6_open_pose_[i]);
+  }
+  left_o6_group->setLayout(left_o6_layout);
+  hand_layout->addWidget(left_o6_group);
+
+  auto *right_o6_group = new QGroupBox("右 O6 手");
+  auto *right_o6_layout = new QVBoxLayout;
+  for (size_t i = 0; i < right_o6_sliders_.size(); ++i) {
+    right_o6_sliders_[i] = createO6SliderRow(
+        QString("右 %1").arg(QString::fromStdString(o6_joint_names_[i])),
+        right_o6_layout,
+        o6_open_pose_[i]);
+  }
+  right_o6_group->setLayout(right_o6_layout);
+  hand_layout->addWidget(right_o6_group);
+  hand_control_group_->setLayout(hand_layout);
+  scroll_layout->addWidget(hand_control_group_);
 
   scroll_layout->addStretch();
   scroll_content->setLayout(scroll_layout);
@@ -91,7 +133,9 @@ void JointSliderPanel::setupUi() {
   joint_step_row->addWidget(joint_step_value_label_);
   root_layout->addLayout(joint_step_row);
 
-  auto *gripper_step_row = new QHBoxLayout;
+  gripper_step_widget_ = new QWidget;
+  auto *gripper_step_row = new QHBoxLayout(gripper_step_widget_);
+  gripper_step_row->setContentsMargins(0, 0, 0, 0);
   gripper_step_row->addWidget(new QLabel("夹爪步长:"));
   gripper_step_slider_ = new QSlider(Qt::Horizontal);
   gripper_step_slider_->setRange(1, 100);  // 0.1~10.0 mm per cycle
@@ -104,7 +148,7 @@ void JointSliderPanel::setupUi() {
   gripper_step_value_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   gripper_step_row->addWidget(gripper_step_slider_, 1);
   gripper_step_row->addWidget(gripper_step_value_label_);
-  root_layout->addLayout(gripper_step_row);
+  root_layout->addWidget(gripper_step_widget_);
 
   status_label_ = new QLabel("状态: 等待初始化...");
   status_label_->setWordWrap(true);
@@ -115,9 +159,15 @@ void JointSliderPanel::setupUi() {
 
   connect(hands_up_button_, &QPushButton::clicked, this, &JointSliderPanel::onHandsUpClicked);
   connect(home_button_, &QPushButton::clicked, this, &JointSliderPanel::onHomeClicked);
+  connect(end_effector_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, &JointSliderPanel::onEndEffectorModeChanged);
+  connect(o6_open_button_, &QPushButton::clicked, this, &JointSliderPanel::setO6OpenPose);
+  connect(o6_close_button_, &QPushButton::clicked, this, &JointSliderPanel::setO6ClosedPose);
   connect(joint_step_slider_, &QSlider::valueChanged, this, &JointSliderPanel::onJointStepSliderChanged);
   connect(gripper_step_slider_, &QSlider::valueChanged, this,
           &JointSliderPanel::onGripperStepSliderChanged);
+
+  updateEndEffectorModeUi();
 }
 
 JointSliderPanel::SliderBinding JointSliderPanel::createJointSliderRow(const QString &title,
@@ -160,9 +210,13 @@ JointSliderPanel::SliderBinding JointSliderPanel::createJointSliderRow(const QSt
   row_layout->addWidget(name_label);
   row_layout->addWidget(slider);
   row_layout->addWidget(value_label);
-  parent_layout->addLayout(row_layout);
+
+  auto *row_widget = new QWidget;
+  row_widget->setLayout(row_layout);
+  parent_layout->addWidget(row_widget);
 
   SliderBinding binding;
+  binding.row_widget = row_widget;
   binding.slider = slider;
   binding.value_label = value_label;
   binding.is_gripper = is_gripper;
@@ -180,12 +234,55 @@ JointSliderPanel::SliderBinding JointSliderPanel::createJointSliderRow(const QSt
   return binding;
 }
 
+JointSliderPanel::SliderBinding JointSliderPanel::createO6SliderRow(
+    const QString &title, QVBoxLayout *parent_layout, int init_value) {
+  auto *row_layout = new QHBoxLayout;
+  auto *name_label = new QLabel(title);
+  name_label->setMinimumWidth(180);
+
+  auto *slider = new QSlider(Qt::Horizontal);
+  slider->setRange(kO6SliderMin, kO6SliderMax);
+  slider->setTickInterval(25);
+  slider->setTickPosition(QSlider::TicksBelow);
+  slider->setValue(std::clamp(init_value, kO6SliderMin, kO6SliderMax));
+
+  auto *value_label = new QLabel;
+  value_label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  value_label->setFixedWidth(48);
+
+  row_layout->addWidget(name_label);
+  row_layout->addWidget(slider);
+  row_layout->addWidget(value_label);
+
+  auto *row_widget = new QWidget;
+  row_widget->setLayout(row_layout);
+  parent_layout->addWidget(row_widget);
+
+  SliderBinding binding;
+  binding.row_widget = row_widget;
+  binding.slider = slider;
+  binding.value_label = value_label;
+  binding.is_o6 = true;
+
+  connect(slider, &QSlider::valueChanged, this, [this, binding](int) {
+    updateSliderLabel(binding);
+    if (!suppress_o6_events_ && shouldUseHandMode()) {
+      publishO6Commands();
+    }
+  });
+
+  updateSliderLabel(binding);
+  return binding;
+}
+
 void JointSliderPanel::updateSliderLabel(const SliderBinding &binding) {
   if (!binding.slider || !binding.value_label) {
     return;
   }
 
-  if (binding.is_gripper) {
+  if (binding.is_o6) {
+    binding.value_label->setText(QString::number(binding.slider->value()));
+  } else if (binding.is_gripper) {
     const int mm = binding.slider->value();
     const double meters = static_cast<double>(mm) / 1000.0;
     binding.value_label->setText(QString::asprintf("%02d mm (%0.3f m)", mm, meters));
@@ -264,8 +361,10 @@ bool JointSliderPanel::applyUrdfJointLimits(const std::string &urdf_xml) {
     all_ok = apply_arm_joint_limit(right_arm_sliders_[i], right_arm_joint_names_[i]) && all_ok;
   }
 
-  all_ok = apply_gripper_joint_limit(left_gripper_slider_, left_gripper_joint_name_) && all_ok;
-  all_ok = apply_gripper_joint_limit(right_gripper_slider_, right_gripper_joint_name_) && all_ok;
+  if (shouldUseGripperMode()) {
+    all_ok = apply_gripper_joint_limit(left_gripper_slider_, left_gripper_joint_name_) && all_ok;
+    all_ok = apply_gripper_joint_limit(right_gripper_slider_, right_gripper_joint_name_) && all_ok;
+  }
 
   for (const auto &binding : left_arm_sliders_) {
     updateSliderLabel(binding);
@@ -277,6 +376,117 @@ bool JointSliderPanel::applyUrdfJointLimits(const std::string &urdf_xml) {
   updateSliderLabel(right_gripper_slider_);
 
   return all_ok;
+}
+
+bool JointSliderPanel::shouldUseGripperMode() const {
+  return end_effector_mode_.load() == EndEffectorMode::Gripper;
+}
+
+bool JointSliderPanel::shouldUseHandMode() const {
+  return end_effector_mode_.load() == EndEffectorMode::Hand;
+}
+
+void JointSliderPanel::onEndEffectorModeChanged(int index) {
+  if (!end_effector_mode_combo_) {
+    return;
+  }
+  const int raw_mode = end_effector_mode_combo_->itemData(index).toInt();
+  end_effector_mode_.store(
+      raw_mode == static_cast<int>(EndEffectorMode::Hand)
+          ? EndEffectorMode::Hand
+          : EndEffectorMode::Gripper);
+  updateEndEffectorModeUi();
+
+  {
+    std::lock_guard<std::mutex> lock(command_mutex_);
+    command_state_initialized_ = false;
+  }
+  updateDesiredTargetFromSliders();
+  if (shouldUseHandMode()) {
+    publishO6Commands();
+  }
+}
+
+void JointSliderPanel::updateEndEffectorModeUi() {
+  const bool gripper_mode = shouldUseGripperMode();
+  if (left_group_) {
+    left_group_->setTitle(gripper_mode ? "左臂 (7关节 + 夹爪)" : "左臂 (7关节 + O6手)");
+  }
+  if (right_group_) {
+    right_group_->setTitle(gripper_mode ? "右臂 (7关节 + 夹爪)" : "右臂 (7关节 + O6手)");
+  }
+  if (left_gripper_slider_.row_widget) {
+    left_gripper_slider_.row_widget->setVisible(gripper_mode);
+  }
+  if (right_gripper_slider_.row_widget) {
+    right_gripper_slider_.row_widget->setVisible(gripper_mode);
+  }
+  if (gripper_step_widget_) {
+    gripper_step_widget_->setVisible(gripper_mode);
+  }
+  if (hand_control_group_) {
+    hand_control_group_->setVisible(!gripper_mode);
+  }
+}
+
+std::vector<double> JointSliderPanel::collectO6Pose(
+    const std::array<SliderBinding, 6> &sliders) const {
+  std::vector<double> pose;
+  pose.reserve(sliders.size());
+  for (const auto &binding : sliders) {
+    pose.push_back(binding.slider ? static_cast<double>(binding.slider->value()) : 0.0);
+  }
+  return pose;
+}
+
+void JointSliderPanel::setO6OpenPose() {
+  suppress_o6_events_ = true;
+  for (size_t i = 0; i < o6_open_pose_.size(); ++i) {
+    if (left_o6_sliders_[i].slider) {
+      left_o6_sliders_[i].slider->setValue(o6_open_pose_[i]);
+    }
+    if (right_o6_sliders_[i].slider) {
+      right_o6_sliders_[i].slider->setValue(o6_open_pose_[i]);
+    }
+  }
+  suppress_o6_events_ = false;
+  publishO6Commands();
+}
+
+void JointSliderPanel::setO6ClosedPose() {
+  suppress_o6_events_ = true;
+  for (auto &binding : left_o6_sliders_) {
+    if (binding.slider) {
+      binding.slider->setValue(0);
+    }
+  }
+  for (auto &binding : right_o6_sliders_) {
+    if (binding.slider) {
+      binding.slider->setValue(0);
+    }
+  }
+  suppress_o6_events_ = false;
+  publishO6Commands();
+}
+
+void JointSliderPanel::publishO6Commands() {
+  if (!shouldUseHandMode() || !left_o6_command_pub_ || !right_o6_command_pub_ || !node_) {
+    return;
+  }
+
+  auto publish_pose = [this](const std::vector<double> &pose,
+                             const rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr &pub) {
+    sensor_msgs::msg::JointState msg;
+    msg.header.stamp = node_->get_clock()->now();
+    msg.name = o6_joint_names_;
+    msg.position = pose;
+    msg.velocity.assign(pose.size(), 0.0);
+    msg.effort.assign(pose.size(), 0.0);
+    pub->publish(msg);
+  };
+
+  publish_pose(collectO6Pose(left_o6_sliders_), left_o6_command_pub_);
+  publish_pose(collectO6Pose(right_o6_sliders_), right_o6_command_pub_);
 }
 
 bool JointSliderPanel::loadJointLimitsFromRobotDescription() {
@@ -347,12 +557,16 @@ void JointSliderPanel::onInitialize() {
   node_ = std::make_shared<rclcpp::Node>("openarmx_joint_slider_panel");
 
   left_forward_pub_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(
-      "/left_forward_position_controller/commands", 10);
+      "left_forward_position_controller/commands", 10);
   right_forward_pub_ = node_->create_publisher<std_msgs::msg::Float64MultiArray>(
-      "/right_forward_position_controller/commands", 10);
+      "right_forward_position_controller/commands", 10);
+  left_o6_command_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
+      "openarmx/o6/left/command", 10);
+  right_o6_command_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(
+      "openarmx/o6/right/command", 10);
 
   joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-      "/joint_states", 30,
+      "joint_states", 30,
       std::bind(&JointSliderPanel::jointStateCallback, this, std::placeholders::_1));
 
   // Fallback robot description source for cases where parameter services are namespaced
@@ -361,7 +575,7 @@ void JointSliderPanel::onInitialize() {
   description_qos.reliable();
   description_qos.transient_local();
   robot_description_sub_ = node_->create_subscription<std_msgs::msg::String>(
-      "/robot_description", description_qos, [this](const std_msgs::msg::String::SharedPtr msg) {
+      "robot_description", description_qos, [this](const std_msgs::msg::String::SharedPtr msg) {
         if (!msg || msg->data.empty()) {
           return;
         }
@@ -370,7 +584,7 @@ void JointSliderPanel::onInitialize() {
 
         if (applyUrdfJointLimits(msg->data)) {
           joint_limits_loaded_ = true;
-          joint_limits_source_node_ = "/robot_description(topic)";
+          joint_limits_source_node_ = "robot_description(topic)";
         }
       });
 
@@ -462,7 +676,10 @@ bool JointSliderPanel::hasAllTargetJointStates() const {
       return false;
     }
   }
-  return has_name(left_gripper_joint_name_) && has_name(right_gripper_joint_name_);
+  if (shouldUseGripperMode()) {
+    return has_name(left_gripper_joint_name_) && has_name(right_gripper_joint_name_);
+  }
+  return true;
 }
 
 JointSliderPanel::TargetState JointSliderPanel::targetStateFromLatestJointStates() const {
@@ -477,8 +694,17 @@ JointSliderPanel::TargetState JointSliderPanel::targetStateFromLatestJointStates
     target.right_arm.push_back(latest_joint_state_map_.at(name));
   }
 
-  target.left_gripper = latest_joint_state_map_.at(left_gripper_joint_name_);
-  target.right_gripper = latest_joint_state_map_.at(right_gripper_joint_name_);
+  if (shouldUseGripperMode()) {
+    target.left_gripper = latest_joint_state_map_.at(left_gripper_joint_name_);
+    target.right_gripper = latest_joint_state_map_.at(right_gripper_joint_name_);
+  } else {
+    target.left_gripper = left_gripper_slider_.slider
+                              ? static_cast<double>(left_gripper_slider_.slider->value()) / 1000.0
+                              : 0.0;
+    target.right_gripper = right_gripper_slider_.slider
+                               ? static_cast<double>(right_gripper_slider_.slider->value()) / 1000.0
+                               : 0.0;
+  }
   return target;
 }
 
@@ -503,13 +729,15 @@ bool JointSliderPanel::applyJointStateToSliders() {
         raw, right_arm_sliders_[i].slider->minimum(), right_arm_sliders_[i].slider->maximum()));
   }
 
-  const int left_mm = static_cast<int>(std::lround(latest_joint_state_map_.at(left_gripper_joint_name_) * 1000.0));
-  const int right_mm = static_cast<int>(std::lround(latest_joint_state_map_.at(right_gripper_joint_name_) * 1000.0));
+  if (shouldUseGripperMode()) {
+    const int left_mm = static_cast<int>(std::lround(latest_joint_state_map_.at(left_gripper_joint_name_) * 1000.0));
+    const int right_mm = static_cast<int>(std::lround(latest_joint_state_map_.at(right_gripper_joint_name_) * 1000.0));
 
-  left_gripper_slider_.slider->setValue(std::clamp(
-      left_mm, left_gripper_slider_.slider->minimum(), left_gripper_slider_.slider->maximum()));
-  right_gripper_slider_.slider->setValue(std::clamp(
-      right_mm, right_gripper_slider_.slider->minimum(), right_gripper_slider_.slider->maximum()));
+    left_gripper_slider_.slider->setValue(std::clamp(
+        left_mm, left_gripper_slider_.slider->minimum(), left_gripper_slider_.slider->maximum()));
+    right_gripper_slider_.slider->setValue(std::clamp(
+        right_mm, right_gripper_slider_.slider->minimum(), right_gripper_slider_.slider->maximum()));
+  }
 
   suppress_slider_events_ = false;
   return true;
@@ -943,7 +1171,9 @@ void JointSliderPanel::commandWorkerLoop() {
 std::vector<double> JointSliderPanel::buildForwardCommand(const std::vector<double> &arm_joints,
                                                           double gripper) const {
   std::vector<double> cmd = arm_joints;
-  cmd.push_back(gripper);
+  if (shouldUseGripperMode()) {
+    cmd.push_back(gripper);
+  }
   return cmd;
 }
 
@@ -983,16 +1213,28 @@ void JointSliderPanel::updateStatusText() {
           ? QString("限位: 来自 %1 的 URDF").arg(QString::fromStdString(joint_limits_source_node_))
           : "限位: 使用默认兜底值";
   const QString step_str =
-      QString("步长: %1 mrad / 夹爪 %2 mm")
-          .arg(joint_step_mrad_)
-          .arg(static_cast<double>(gripper_step_tenth_mm_) / 10.0, 0, 'f', 1);
-  setStatus(QString("控制: 滑块直控(分段执行) | %1 | %2 | %3 | 预览: 半透明实时(按滑块目标, 不受步长影响)")
+      shouldUseGripperMode()
+          ? QString("步长: %1 mrad / 夹爪 %2 mm")
+                .arg(joint_step_mrad_)
+                .arg(static_cast<double>(gripper_step_tenth_mm_) / 10.0, 0, 'f', 1)
+          : QString("步长: %1 mrad / O6手直接发布").arg(joint_step_mrad_);
+  const QString mode_str = shouldUseGripperMode() ? "夹爪模式(8轴)" : "手部模式(7轴+O6)";
+  setStatus(QString("控制: %1 滑块直控(分段执行) | %2 | %3 | %4 | 预览: 半透明实时(按滑块目标, 不受步长影响)")
+                .arg(mode_str)
                 .arg(joint_state_str, limits_str, step_str),
             "#F0F0F0");
 }
 
 void JointSliderPanel::load(const rviz_common::Config &config) {
   rviz_common::Panel::load(config);
+
+  int mode_value = static_cast<int>(EndEffectorMode::Gripper);
+  if (config.mapGetInt("end_effector_mode", &mode_value) && end_effector_mode_combo_) {
+    const int index = end_effector_mode_combo_->findData(mode_value);
+    if (index >= 0) {
+      end_effector_mode_combo_->setCurrentIndex(index);
+    }
+  }
 
   int joint_step_mrad = joint_step_mrad_;
   if (config.mapGetInt("joint_step_mrad", &joint_step_mrad)) {
@@ -1018,10 +1260,12 @@ void JointSliderPanel::load(const rviz_common::Config &config) {
   }
 
   live_preview_enabled_ = true;
+  updateEndEffectorModeUi();
 }
 
 void JointSliderPanel::save(rviz_common::Config config) const {
   rviz_common::Panel::save(config);
+  config.mapSetValue("end_effector_mode", static_cast<int>(end_effector_mode_.load()));
   config.mapSetValue("joint_step_mrad", joint_step_mrad_);
   config.mapSetValue("gripper_step_tenth_mm", gripper_step_tenth_mm_);
 }
